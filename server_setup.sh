@@ -30,6 +30,21 @@ echo
 echo 'If the relay does not resolve then exit now and check the network connection and DNS entry for the relay'
 read -n1 -rsp $'Press any key to continue or Ctrl+C to exit...\n'
 echo
+echo '________________________________________________________________'
+echo
+echo 'setting up required directories on the server'
+# creating directory /root/.ssh/
+mkdir /root/.ssh/ > /dev/null 2>&1
+# setting permissions on /root/.ssh/ directory
+chmod 700 /root/.ssh/
+# creating directory /root/.vnc/
+mkdir /root/.vnc/ > /dev/null 2>&1
+# setting permissions on /root/.vnc/ directory
+chmod 700 /root/.vnc/
+echo 'completed setting up folders on the server'
+echo
+echo '________________________________________________________________'
+echo
 echo "retrieving trusted fingerprint from https://$relay_fqdn/trusted"
 wget -q -O /root/.ssh/trusted https://$relay_fqdn/trusted
 echo
@@ -52,19 +67,6 @@ echo "setting the hostname to $server"
 hostname $server
 echo "$server" > /etc/hostname
 echo 'completed setting the hostname'
-echo
-echo '________________________________________________________________'
-echo
-echo 'setting up required directories on the server'
-# creating directory /root/.ssh/
-mkdir /root/.ssh/ > /dev/null 2>&1
-# setting permissions on /root/.ssh/ directory
-chmod 700 /root/.ssh/
-# creating directory /root/.vnc/
-mkdir /root/.vnc/ > /dev/null 2>&1
-# setting permissions on /root/.vnc/ directory
-chmod 700 /root/.vnc/
-echo 'completed setting up folders on the server'
 echo
 echo '________________________________________________________________'
 echo
