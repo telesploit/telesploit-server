@@ -14,8 +14,10 @@ server_setup.sh should be run as root only on a new Kali Xfce installation. Any 
 Prior to running the setup script, the following actions MUST be taken.
 
 1) Setup a Telesploit relay and assign an FQDN
-2) Fully update the Kali Xfce install (update/upgrade/dist-upgrade)
-3) Update the relay_fqdn, tester_pub_key, usb_drive variables in telesploit-server/server.cfg
+2) Fully update the Kali Xfce install (update/upgrade)
+3) Update the relay_fqdn, tester_pub_key, usb_drive, and network_interface_name variables in telesploit-server/server.cfg
 3) Insert a USB flash drive (SanDisk Ultra Fit or other small form factor USBs recommended as this must stay connected to the system)
 4) Format the USB flash drive to FAT32 and label it TELESPLOIT (default)
 5) Mount the USB flash drive, /media/root/TELESPLOIT (default). Simply right click on the TELESPLOIT drive on the desktop and select mount
+
+NOTE: On Kali 2020.1 first unlock the root account 'sudo passwd root'
