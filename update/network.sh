@@ -16,13 +16,13 @@ if echo "$dhcp_or_static" | grep -iq "^s" ; then
     read -p 'Enter the secondary DNS server, e.g. 8.8.8.4: ' static_dns2
     echo
     echo 'creating custom config file ../configs/network.conf'
-    echo "nmcli con add con-name telesploit ifname eth0 type ethernet ip4 $static_ip_cidr gw4 $static_gw" > ../configs/network.conf
+    echo "nmcli con add con-name telesploit ifname $network_interface_name type ethernet ip4 $static_ip_cidr gw4 $static_gw" > ../configs/network.conf
     echo "nmcli con mod telesploit ipv4.dns $static_dns1" >> ../configs/network.conf
     echo "nmcli con mod telesploit +ipv4.dns $static_dns2" >> ../configs/network.conf
 elif echo "$dhcp_or_static" | grep -iq "^d" ; then
     echo 'The telesploit server will be set to use a DHCP assigned IP address.'
     echo 'creating custom config file ../configs/network.conf'
-    echo 'nmcli con add con-name telesploit ifname eth0 type ethernet' > ../configs/network.conf
+    echo "nmcli con add con-name telesploit ifname $network_interface_name type ethernet" > ../configs/network.conf
 else
     echo 'The entered option was not understood, please run the updater again and enter d/D/DHCP or s/S/STATIC'
     echo 'No changes have been made'

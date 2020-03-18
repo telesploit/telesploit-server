@@ -6,13 +6,13 @@ echo 'The following steps MUST be completed before running this script'
 echo
 echo 'Step 1: Setup a Telesploit relay using the relay_setup.sh script, and creating a DNS record for the relay'
 echo 'Step 2: Copy the folder containing this script to the /root directory of the Telesploit server, i.e. /root/telesploit-server/server_setup.sh'
-echo 'Step 3: Perform an apt-get update, apt-get upgrade and apt-get dist-upgrade prior to running this script'
+echo 'Step 3: Perform an apt-get update, and apt-get upgrade prior to running this script'
 echo 'Step 4: Insert a USB flash drive for storing configs and logs'
 echo "Step 5: Format the USB flash drive to FAT32 and label it $usb_label (case sensitive)"
 echo "Step 6: Mount the USB flash drive (default $usb_directory - case sensitive). Simply right click on the $usb_label drive on the desktop and select mount"
 echo 'Step 7: Verify the variables below from server.cfg are correct'
 echo
-echo 'The first three variables (relay_fqdn, tester_pub_key, usb_drive) MUST be changed to reflect the installation envrionment'
+echo 'The first four variables (relay_fqdn, tester_pub_key, usb_drive, and network_interface_name) MUST be changed to reflect the installation envrionment'
 echo 'The fourth variable, working_directory, as well as the source file location in scripts within the /scripts directory should be changed if the telesploit-server folder is placed anywhere other than directly under /root/'
 echo 'The fifth variable, gpg_key, should be changed for security reasons (no single quotes)'
 echo 'The remaining variables can safely be left with their default values'
@@ -41,7 +41,129 @@ chmod 700 /root/.ssh/
 mkdir /root/.vnc/ > /dev/null 2>&1
 # setting permissions on /root/.vnc/ directory
 chmod 700 /root/.vnc/
+# creating USB configs directory
+mkdir $usb_directory/configs/
+# creating USB logs directory
+mkdir $usb_directory/logs/
 echo 'completed setting up folders on the server'
+echo
+echo '________________________________________________________________'
+echo
+read -p 'Configure the Telesploit server for DHCP or STATIC? [D/S]: ' dhcp_or_static
+    while [[ $dhcp_or_static != [dDsS] ]]
+    do
+        echo "Invalid choice please choose D or S"
+        read -p 'Configure the Telesploit server for DHCP or STATIC? [D/S]: ' dhcp_or_static
+    done
+echo
+if echo "$dhcp_or_static" | grep -iq "^s" ; then
+    echo 'The Telesploit server will be set to use a static IP address.'
+    echo
+    read -p 'Enter the static IP address and CIDR, e.g. 192.168.1.68/24: ' static_ip_cidr
+    echo
+    read -p 'Enter the default gateway, e.g. 192.168.1.1: ' static_gw
+    echo
+    read -p 'Enter the primary DNS server, e.g. 8.8.8.8: ' static_dns1
+    echo
+    read -p 'Enter the secondary DNS server, e.g. 8.8.8.4: ' static_dns2
+    echo 'creating custom config file ./configs/network.conf'
+    echo "nmcli con add con-name telesploit ifname $network_interface_name type ethernet ip4 $static_ip_cidr gw4 $static_gw" > ./configs/network.conf
+    echo "nmcli con mod telesploit ipv4.dns $static_dns1" >> ./configs/network.conf
+    echo "nmcli con mod telesploit +ipv4.dns $static_dns2" >> ./configs/network.conf
+elif echo "$dhcp_or_static" | grep -iq "^d" ; then
+    echo 'The Telesploit server will be set to use a DHCP IP address.'
+    echo 'creating custom config file ./configs/network.conf'
+    echo "nmcli con add con-name telesploit ifname $network_interface_name type ethernet" > ./configs/network.conf
+fi
+echo
+echo 'What type of connection should the Telesploit server use?'
+echo '[D]irect TLS - No proxy is required. Certificate checking is enabled. SSH host-based verification is enabled.'
+echo '[U]nsafe TLS - No proxy is required. Certificate checking is disabled. SSH host-based verification is enabled.'
+echo '[P]lain - Simple proxy. No password required. Certificate checking is disabled. SSH host-based verification is enabled.'
+echo '[B]asic - Proxy uses BASIC authentication. Certificate checking is disabled. SSH host-based verification is enabled.'
+echo '[N]TLM - Proxy uses NTLM authentication. Certificate checking is disabled. SSH host-based verification is enabled.'
+read -p 'Choose the Telesploit server connection type [D/U/P/B/N]: ' connection_type
+    while [[ $connection_type != [dDuUpPbBnN] ]]
+    do
+        echo "Invalid choice please choose D, U, P, B, or N"
+        read -p 'Choose the Telesploit server connection type [D/U/P/B/N]: ' connection_type
+    done
+echo
+set_proxy_variables () {
+    read -p 'Enter the IP address or FQDN of the proxy server, e.g. 192.168.1.69 or proxy.corp.com: ' proxy_server
+    echo
+    read -p 'Enter the port used by the proxy server, e.g. 3128: ' proxy_port
+}
+set_proxy_credentials () {
+    read -p 'Enter the username for the proxy server, e.g. pentester: ' proxy_username
+    echo
+    read -s -p 'Enter the password for the proxy server, e.g. SquidWard: ' proxy_password
+    echo
+}
+set_proxy_domain () {
+    read -p 'Enter the NTLM domain for the account, e.g. CORP: ' proxy_domain
+    echo
+}
+if echo "$connection_type" | grep -iq "^d" ; then
+    proxy_command="/usr/bin/ncat --ssl-verify $relay_fqdn 443"
+elif echo "$connection_type" | grep -iq "^u" ; then
+    proxy_command="/usr/bin/ncat --ssl $relay_fqdn 443"
+elif echo "$connection_type" | grep -iq "^p" ; then
+    set_proxy_variables
+    proxy_command="/usr/bin/proxytunnel -v -p $proxy_server:$proxy_port -d $relay_fqdn:443 -e"
+elif echo "$connection_type" | grep -iq "^b" ; then
+    set_proxy_variables
+    set_proxy_credentials
+    proxy_command="/usr/bin/proxytunnel -v -p $proxy_server:$proxy_port -P $proxy_username:$proxy_password -d $relay_fqdn:443 -e"
+elif echo "$connection_type" | grep -iq "^n" ; then
+    set_proxy_variables
+    set_proxy_credentials
+    set_proxy_domain
+    proxy_command="/usr/bin/proxytunnel -v -p $proxy_server:$proxy_port -N -t $proxy_domain -P $proxy_username:$proxy_password -d $relay_fqdn:443 -e"
+fi
+#creating connection.conf configuration file
+echo "Host $service_name" > ./configs/connection.conf
+echo ' HostName localhost' >> ./configs/connection.conf
+echo ' AddressFamily inet' >> ./configs/connection.conf
+echo " User $relay_user" >> ./configs/connection.conf
+echo ' Port 22' >> ./configs/connection.conf
+echo " IdentityFile /root/.ssh/$server_ssh_key" >> ./configs/connection.conf
+echo " ProxyCommand $proxy_command" >> ./configs/connection.conf
+echo ' ServerAliveInterval 10' >> ./configs/connection.conf
+echo ' ServerAliveCountMax 3' >> ./configs/connection.conf
+echo ' ExitOnForwardFailure yes' >> ./configs/connection.conf
+echo ' StrictHostKeyChecking yes' >> ./configs/connection.conf
+echo " UserKnownHostsFile /root/.ssh/$known_hosts" >> ./configs/connection.conf
+echo >> ./configs/connection.conf
+echo "Host $service_ssh" >> ./configs/connection.conf
+echo " $forward_ssh" >> ./configs/connection.conf
+echo " $forward_irc"  >> ./configs/connection.conf
+echo " $forward_collab"  >> ./configs/connection.conf
+echo >> ./configs/connection.conf
+echo "Host $service_vnc" >> ./configs/connection.conf
+echo " $forward_vnc" >> ./configs/connection.conf
+echo >> ./configs/connection.conf
+echo "Host $service_rdp" >> ./configs/connection.conf
+echo " $forward_rdp" >> ./configs/connection.conf
+echo >> ./configs/connection.conf
+echo "Host $service_squid" >> ./configs/connection.conf
+echo " $forward_squid" >> ./configs/connection.conf
+echo >> ./configs/connection.conf
+echo "Host $service_socks" >> ./configs/connection.conf
+echo " $forward_socks" >> ./configs/connection.conf
+echo >> ./configs/connection.conf
+echo 'Host client' >> ./configs/connection.conf
+echo ' HostName localhost' >> ./configs/connection.conf
+echo ' AddressFamily inet' >> ./configs/connection.conf
+echo ' User root' >> ./configs/connection.conf
+echo ' Port 22' >> ./configs/connection.conf
+echo " IdentityFile /root/.ssh/$server_ssh_key" >> ./configs/connection.conf
+echo " LocalForward $local_socks_port $local_socks_target" >> ./configs/connection.conf
+echo ' ServerAliveInterval 10' >> ./configs/connection.conf
+echo ' ServerAliveCountMax 3' >> ./configs/connection.conf
+echo ' ExitOnForwardFailure yes' >> ./configs/connection.conf
+echo ' NoHostAuthenticationForLocalhost yes' >> ./configs/connection.conf
+echo 'finished creating custom config file'
 echo
 echo '________________________________________________________________'
 echo
@@ -106,137 +228,8 @@ echo 'completed setting up SSH client related files'
 echo
 echo '________________________________________________________________'
 echo
-echo 'setting up the server connection to the relay'
-echo
-echo 'What type of connection should the Telesploit server use?'
-echo '[D]irect TLS - No proxy is required. Certificate checking is enabled. SSH host-based verification is enabled.'
-echo '[U]nsafe TLS - No proxy is required. Certificate checking is disabled. SSH host-based verification is enabled.'
-echo '[P]lain - Simple proxy. No password required. Certificate checking is disabled. SSH host-based verification is enabled.'
-echo '[B]asic - Proxy uses BASIC authentication. Certificate checking is disabled. SSH host-based verification is enabled.'
-echo '[N]TLM - Proxy uses NTLM authentication. Certificate checking is disabled. SSH host-based verification is enabled.'
-read -p 'Choose the Telesploit server connection type [D/U/P/B/N]: ' connection_type
-echo
-set_proxy_variables () {
-    read -p 'Enter the IP address or FQDN of the proxy server, e.g. 192.168.1.69 or proxy.corp.com: ' proxy_server
-    echo
-    read -p 'Enter the port used by the proxy server, e.g. 3128: ' proxy_port
-}
-set_proxy_credentials () {
-    read -p 'Enter the username for the proxy server, e.g. pentester: ' proxy_username
-    echo
-    read -s -p 'Enter the password for the proxy server, e.g. SquidWard: ' proxy_password
-    echo
-}
-set_proxy_domain () {
-    read -p 'Enter the NTLM domain for the account, e.g. CORP: ' proxy_domain
-    echo
-}
-if echo "$connection_type" | grep -iq "^d" ; then
-    proxy_command="/usr/bin/ncat --ssl-verify $relay_fqdn 443"
-elif echo "$connection_type" | grep -iq "^u" ; then
-    proxy_command="/usr/bin/ncat --ssl $relay_fqdn 443"
-elif echo "$connection_type" | grep -iq "^p" ; then
-    set_proxy_variables
-    proxy_command="/usr/bin/proxytunnel -v -p $proxy_server:$proxy_port -d $relay_fqdn:443 -e"
-elif echo "$connection_type" | grep -iq "^b" ; then
-    set_proxy_variables
-    set_proxy_credentials
-    proxy_command="/usr/bin/proxytunnel -v -p $proxy_server:$proxy_port -P $proxy_username:$proxy_password -d $relay_fqdn:443 -e"
-elif echo "$connection_type" | grep -iq "^n" ; then
-    set_proxy_variables
-    set_proxy_credentials
-    set_proxy_domain
-    proxy_command="/usr/bin/proxytunnel -v -p $proxy_server:$proxy_port -N -t $proxy_domain -P $proxy_username:$proxy_password -d $relay_fqdn:443 -e"
-else
-    echo 'The entered option was not understood. A default Direct TLS configuration will be used'
-    proxy_command="/usr/bin/ncat --ssl-verify $relay_fqdn 443"
-fi
-echo 'creating custom config file'
-echo "Host $service_name" > ./configs/connection.conf
-echo ' HostName localhost' >> ./configs/connection.conf
-echo ' AddressFamily inet' >> ./configs/connection.conf
-echo " User $relay_user" >> ./configs/connection.conf
-echo ' Port 22' >> ./configs/connection.conf
-echo " IdentityFile /root/.ssh/$server_ssh_key" >> ./configs/connection.conf
-echo " ProxyCommand $proxy_command" >> ./configs/connection.conf
-echo ' ServerAliveInterval 10' >> ./configs/connection.conf
-echo ' ServerAliveCountMax 3' >> ./configs/connection.conf
-echo ' ExitOnForwardFailure yes' >> ./configs/connection.conf
-echo ' StrictHostKeyChecking yes' >> ./configs/connection.conf
-echo " UserKnownHostsFile /root/.ssh/$known_hosts" >> ./configs/connection.conf
-echo >> ./configs/connection.conf
-echo "Host $service_ssh" >> ./configs/connection.conf
-echo " $forward_ssh" >> ./configs/connection.conf
-echo " $forward_irc"  >> ./configs/connection.conf
-echo " $forward_collab"  >> ./configs/connection.conf
-echo >> ./configs/connection.conf
-echo "Host $service_vnc" >> ./configs/connection.conf
-echo " $forward_vnc" >> ./configs/connection.conf
-echo >> ./configs/connection.conf
-echo "Host $service_rdp" >> ./configs/connection.conf
-echo " $forward_rdp" >> ./configs/connection.conf
-echo >> ./configs/connection.conf
-echo "Host $service_squid" >> ./configs/connection.conf
-echo " $forward_squid" >> ./configs/connection.conf
-echo >> ./configs/connection.conf
-echo "Host $service_socks" >> ./configs/connection.conf
-echo " $forward_socks" >> ./configs/connection.conf
-echo >> ./configs/connection.conf
-echo 'Host client' >> ./configs/connection.conf
-echo ' HostName localhost' >> ./configs/connection.conf
-echo ' AddressFamily inet' >> ./configs/connection.conf
-echo ' User root' >> ./configs/connection.conf
-echo ' Port 22' >> ./configs/connection.conf
-echo " IdentityFile /root/.ssh/$server_ssh_key" >> ./configs/connection.conf
-echo " LocalForward $local_socks_port $local_socks_target" >> ./configs/connection.conf
-echo ' ServerAliveInterval 10' >> ./configs/connection.conf
-echo ' ServerAliveCountMax 3' >> ./configs/connection.conf
-echo ' ExitOnForwardFailure yes' >> ./configs/connection.conf
-echo ' NoHostAuthenticationForLocalhost yes' >> ./configs/connection.conf
-echo 'finished creating custom config file'
-echo
-echo 'completed updating relay information'
-echo
-echo '________________________________________________________________'
-echo
-echo 'updating the server network settings'
-echo
-read -p 'Configure the Telesploit server for DHCP or STATIC? [D/S]: ' dhcp_or_static
-echo
-if echo "$dhcp_or_static" | grep -iq "^s" ; then
-    echo 'The Telesploit server will be set to use a static IP address.'
-    read -p 'Enter the static IP address and CIDR, e.g. 192.168.1.68/24: ' static_ip_cidr
-    echo
-    read -p 'Enter the default gateway, e.g. 192.168.1.1: ' static_gw
-    echo
-    read -p 'Enter the primary DNS server, e.g. 8.8.8.8: ' static_dns1
-    echo
-    read -p 'Enter the secondary DNS server, e.g. 8.8.8.4: ' static_dns2
-    echo
-    # creating custom config file ./configs/network.conf
-    echo "nmcli con add con-name telesploit ifname eth0 type ethernet ip4 $static_ip_cidr gw4 $static_gw" > ./configs/network.conf
-    echo "nmcli con mod telesploit ipv4.dns $static_dns1" >> ./configs/network.conf
-    echo "nmcli con mod telesploit +ipv4.dns $static_dns2" >> ./configs/network.conf
-elif echo "$dhcp_or_static" | grep -iq "^d" ; then
-    echo 'The telesploit server will be set to use a DHCP assigned IP address.'
-    # creating custom config file ./configs/network.conf
-    echo 'nmcli con add con-name telesploit ifname eth0 type ethernet' > ./configs/network.conf
-else
-    echo 'The entered option was not understood. A default DHCP configuration will be used.'
-    # creating custom config file ./configs/network.conf
-    echo 'nmcli con add con-name telesploit ifname eth0 type ethernet' > ./configs/network.conf
-fi
-echo
-echo 'finished updating the server network settings'
-echo
-echo '________________________________________________________________'
-echo
 echo 'setting up required directories and files on the USB'
 echo
-# creating configs directory
-mkdir $usb_directory/configs/
-# creating logs directory
-mkdir $usb_directory/logs/
 # encrypting configs with the gpg_key and copying to the USB drive
 gpg --yes --no-tty --batch --passphrase $gpg_key -o $usb_directory/configs/authorized.conf.gpg -c /root/.ssh/authorized_keys
 gpg --yes --no-tty --batch --passphrase $gpg_key -o $usb_directory/configs/network.conf.gpg -c ./configs/network.conf
@@ -402,6 +395,14 @@ systemctl enable $service_squid.service
 systemctl enable $service_socks.service
 echo
 echo 'completed setting up the newly installed services'
+echo
+echo '________________________________________________________________'
+echo
+echo 'restricting postgresql to listen only on 127.0.0.1 and setting up metasploit'
+postgresql_version=$(ls /etc/postgresql/)
+echo "running version $postgresql_version"
+echo 'modifying postgresql.conf'
+sed -i "s/#listen_addresses.*/listen_addresses = '127.0.0.1' # what IP address(es) to listen on;/g" /etc/postgresql/$postgresql_version/main/postgresql.conf
 echo
 echo '________________________________________________________________'
 echo
